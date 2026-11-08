@@ -1,0 +1,13 @@
+{
+	"admin/status/realtime/corestatus": {
+		"title": "Load and Temperature",
+		"order": 9,
+		"action": {
+			"type": "view",
+			"path": "status/corestatus"
+		},
+		"depends": {
+			"acl": [ "luci-app-corestatus" ]
+		}
+	}
+}

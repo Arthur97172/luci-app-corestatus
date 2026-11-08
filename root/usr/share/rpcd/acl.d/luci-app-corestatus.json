@@ -1,0 +1,60 @@
+{
+	"luci-app-corestatus": {
+		"description": "Grant access to corestatus procedures",
+		"read": {
+			"ubus": {
+				"luci.corestatus": [ "getSensors", "getTempData", "getTempStatus" ]
+			},
+			"file": {
+				"/proc/stat": [ "read" ],
+
+				"/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq": [ "read" ],
+				"/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_cur_freq": [ "read" ],
+				"/sys/devices/system/cpu/cpufreq/*/scaling_cur_freq": [ "read" ],
+				"/sys/devices/system/cpu/cpufreq/*/cpuinfo_cur_freq": [ "read" ],
+				"/sys/firmware/devicetree/base/opp-table": [ "list" ],
+
+				"/sys/class/devfreq": [ "list" ],
+				"/sys/class/devfreq/*": [ "read" ],
+				"/sys/class/devfreq/*/load": [ "read" ],
+				"/sys/class/devfreq/*/gpu_load": [ "read" ],
+				"/sys/class/devfreq/*/utilisation": [ "read" ],
+				"/sys/class/devfreq/*/utilization": [ "read" ],
+				"/sys/class/devfreq/*/cur_freq": [ "read" ],
+
+				"/sys/class/misc": [ "list" ],
+				"/sys/class/misc/*": [ "read" ],
+				"/sys/class/misc/*/*": [ "read" ],
+				"/sys/class/misc/*/device/*": [ "read" ],
+
+				"/sys/devices/*/misc/*/*": [ "read" ],
+				"/sys/devices/*/utilization": [ "read" ],
+				"/sys/devices/*/utilisation": [ "read" ],
+				"/sys/devices/*/load": [ "read" ],
+				"/sys/devices/*/gpu_load": [ "read" ],
+				"/sys/devices/*/busy": [ "read" ],
+				"/sys/devices/*/clock": [ "read" ],
+				"/sys/devices/*/cur_freq": [ "read" ],
+				"/sys/devices/*/frequency": [ "read" ],
+				"/sys/devices/*/devfreq/*/name": [ "read" ],
+				"/sys/devices/*/devfreq/*/load": [ "read" ],
+				"/sys/devices/*/devfreq/*/cur_freq": [ "read" ],
+
+				"/sys/kernel/debug/rknpu/load": [ "read" ],
+				"/sys/bus/platform/drivers/airoha-npu": [ "list" ],
+				"/sys/kernel/debug/clk/npu/clk_rate": [ "read" ],
+
+				"/sys/class/kgsl/*/gpu_busy_percentage": [ "read" ],
+				"/sys/class/kgsl/*/gpubusy": [ "read" ],
+				"/sys/devices/*/kgsl-3d0/gpu_busy_percentage": [ "read" ],
+				"/sys/devices/*/kgsl-3d0/gpubusy": [ "read" ],
+
+				"/sys/class/drm/*/device/gpu_busy_percent": [ "read" ],
+				"/sys/devices/*/drm/*/device/gpu_busy_percent": [ "read" ],
+				"/sys/devices/*/gpu_busy_percent": [ "read" ],
+
+				"/sys/devices/platform/gpu.0/load": [ "read" ]
+			}
+		}
+	}
+}
