@@ -4,6 +4,7 @@
 'require request';
 'require rpc';
 'require ui';
+'require corestatus.tab-nav as tabNav';
 
 document.head.append(E('style', {'type': 'text/css'},
 `
@@ -541,6 +542,7 @@ return baseclass.extend({
 			};
 
 			ui.tabs.initTabGroup(tabs.childNodes);
+			tabNav.setup(tabs);
 		};
 
 		return map;

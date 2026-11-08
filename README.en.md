@@ -18,6 +18,7 @@ It adds two entry points:
 - **Load and frequency presented separately**: a progress bar is drawn when a load counter exists; otherwise only the frequency is shown (the device name is added when there are several devices of the same kind), with no empty bar and no "unavailable".
 - **Automatic numbering for multiple devices**: for example `GPU 1` and `GPU 2`, each labelled "Load" or "Frequency" according to the data actually available.
 - **Temperature sensors**: reads hwmon and thermal zones; the temperature block is embedded in the Load and Temperature widget, offers card, list, table and bar views with the same tab styling as the load view tabs, and colour-codes hot/overheat thresholds.
+- **Overflowing tabs**: when the load or temperature tab bar does not fit on one line, ‹ / › buttons appear at both ends to step to the previous/next tab and scroll it into view; they stay hidden while every tab fits.
 - **Read-only, no daemon**: all data is read through rpcd. The plugin writes no UCI configuration and starts no background service.
 
 ## Row labels
@@ -131,12 +132,13 @@ Some vendor firmware renders the overview from a fixed include list and never lo
 2. The switch at the top of the page toggles between **Load** and **Temperature**; the choice is stored in the browser.
 3. "Load" has tabs for Total and each CPU, with current, average and peak values for the User, System, Sirq and Total curves.
 4. "Temperature" has a tab per sensor, with current, minimum, average and peak values and the hot/overheat threshold lines.
-5. Both views share the same 3-second sampling; the chart window covers the last few minutes, which makes short spikes easy to see.
+5. When the sensor or CPU tabs do not fit in the tab bar, ‹ / › buttons appear at its left and right ends: they switch to the previous/next tab and scroll it into view, and are greyed out at the first and last tab. Both stay hidden while all tabs fit.
+6. Both views share the same 3-second sampling; the chart window covers the last few minutes, which makes short spikes easy to see.
 
 ## How it works
 
 - `view/status/include/18_corestatus.js` is the overview include; LuCI calls `load()` and re-renders it every 5 seconds. The temperature block comes from `corestatus/temperature-overview.js` and shares that render pass.
-- `view/status/corestatus.js` is the realtime page; it composes `corestatus/load-graph.js` and `corestatus/temperature-graph.js`, which share a single 3-second poll.
+- `view/status/corestatus.js` is the realtime page; it composes `corestatus/load-graph.js` and `corestatus/temperature-graph.js`, which share a single 3-second poll. `corestatus/tab-nav.js` adds the previous/next buttons to both tab bars and scrolls the active tab into view when the tabs overflow.
 - CPU load is computed from the difference between two consecutive `/proc/stat` samples, so it reports utilisation over an interval rather than an average since boot.
 - The CPU frequency comes from `/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq`, then `cpuinfo_cur_freq` (both in kHz). When neither exists (cpufreq did not register), the plugin lists the `opp-<Hz>` nodes under `/sys/firmware/devicetree/base/opp-table` and uses the highest one; if that is unavailable too, the row is omitted.
 - GPU/NPU discovery runs once on first load and is cached. If it found nothing, it is retried at most once a minute so hardware that appears late is not missed permanently.
@@ -181,6 +183,7 @@ Some vendor firmware renders the overview from a fixed include list and never lo
 │   │       └── 18_corestatus.js
 │   └── corestatus/
 │       ├── load-graph.js
+│       ├── tab-nav.js
 │       ├── temperature-graph.js
 │       └── temperature-overview.js
 ├── po/templates/corestatus.pot

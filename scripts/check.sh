@@ -34,7 +34,8 @@ for f in htdocs/luci-static/resources/view/status/corestatus.js \
          htdocs/luci-static/resources/view/status/include/18_corestatus.js \
          htdocs/luci-static/resources/corestatus/load-graph.js \
          htdocs/luci-static/resources/corestatus/temperature-graph.js \
-         htdocs/luci-static/resources/corestatus/temperature-overview.js; do
+         htdocs/luci-static/resources/corestatus/temperature-overview.js \
+         htdocs/luci-static/resources/corestatus/tab-nav.js; do
 	# node --check parses as a script and rejects the top-level `return` that
 	# every LuCI view ends with; the Function constructor accepts it.
 	if node -e 'new Function(require("fs").readFileSync(process.argv[1], "utf8"))' "$f"; then
@@ -128,7 +129,8 @@ else:
 
 for f in ('htdocs/luci-static/resources/corestatus/load-graph.js',
           'htdocs/luci-static/resources/corestatus/temperature-graph.js',
-          'htdocs/luci-static/resources/corestatus/temperature-overview.js'):
+          'htdocs/luci-static/resources/corestatus/temperature-overview.js',
+          'htdocs/luci-static/resources/corestatus/tab-nav.js'):
 	if not os.path.isfile(f):
 		problems.append('shared module %s is missing' % f)
 

@@ -96,3 +96,9 @@ msgstr ""
 
 msgid "Temperature"
 msgstr ""
+
+msgid "Next tab"
+msgstr ""
+
+msgid "Previous tab"
+msgstr ""

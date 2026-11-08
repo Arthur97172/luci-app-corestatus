@@ -191,7 +191,8 @@ fi
 
 for f in /www/luci-static/resources/view/status/corestatus.js \
          /www/luci-static/resources/view/status/include/18_corestatus.js \
-         /www/luci-static/resources/corestatus/load-graph.js; do
+         /www/luci-static/resources/corestatus/load-graph.js \
+         /www/luci-static/resources/corestatus/tab-nav.js; do
 	if [ -f "$f" ]; then
 		note ok "$f"
 	else

@@ -79,6 +79,7 @@ SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
 - **负载与频率分开呈现**：有负载计数器时画进度条；没有计数器时只显示频率（同类设备有多个时再附带设备名），不显示空进度条或「不可用」。
 - **同类设备自动编号**：例如 `GPU 1`、`GPU 2`，并随可用数据分别显示「负载」或「频率」。
 - **温度传感器**：读取 hwmon 与 thermal zone，温度区块内嵌在负载与温度组件中，提供卡片、列表、表格、条形四种视图，切换标签与负载的视图标签风格一致；hot/overheat 阈值分别着色。
+- **标签过多时可左右切换**：实时页的负载与温度标签栏在标签超出一行时，两端会出现 ‹ / › 按钮，逐个切换到上一个/下一个标签并自动滚动到可见区域；标签没有溢出时按钮不显示。
 - **只读、无守护进程**：全部数据通过 rpcd 读取，不写 UCI，不启动后台服务。
 
 ## 行标签
@@ -133,12 +134,13 @@ SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
 2. 页面顶部可在「负载」和「温度」之间切换，选择会保存在浏览器里。
 3. 「负载」按 Total 和各 CPU 分页，显示 User、System、Sirq、Total 曲线的当前值、平均值和峰值。
 4. 「温度」按传感器分页，显示当前值、最低、平均、峰值以及 hot/overheat 阈值线。
-5. 两个视图共用同一个 3 秒采样周期，图表窗口覆盖最近几分钟的数据，用来观察短时波动。
+5. 传感器或 CPU 标签较多、超出标签栏宽度时，标签栏左右两端会出现 ‹ / › 按钮：点击切换到上一个/下一个标签，当前标签会自动滚动到可见区域；位于第一个或最后一个标签时对应按钮变灰。标签未溢出时不显示这两个按钮。
+6. 两个视图共用同一个 3 秒采样周期，图表窗口覆盖最近几分钟的数据，用来观察短时波动。
 
 ## 工作原理
 
 - `view/status/include/18_corestatus.js` 是概览页的 include，LuCI 每 5 秒调用一次 `load()` 并重新渲染；温度区块由 `corestatus/temperature-overview.js` 提供，和负载共用同一次渲染。
-- `view/status/corestatus.js` 是实时状态页，组合 `corestatus/load-graph.js` 与 `corestatus/temperature-graph.js`，两者共用一次 3 秒轮询。
+- `view/status/corestatus.js` 是实时状态页，组合 `corestatus/load-graph.js` 与 `corestatus/temperature-graph.js`，两者共用一次 3 秒轮询。`corestatus/tab-nav.js` 为这两个页面的标签栏加上左右切换按钮，并在标签溢出时自动滚动当前标签。
 - CPU 负载由相邻两次 `/proc/stat` 计数的差值计算，得到的是一段时间内的利用率，而不是开机以来的平均值。
 - CPU 频率先读 `/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq`，其次 `cpuinfo_cur_freq`（单位 kHz）。这两个文件不存在时（cpufreq 驱动未注册），改为列出 `/sys/firmware/devicetree/base/opp-table` 下的 `opp-<Hz>` 节点并取最大值；再读不到就不显示该行。
 - GPU/NPU 在首次加载时扫描一次并缓存结果；如果结果为空，则最多每分钟重新扫描一次，避免硬件尚未就绪时永久漏掉。
@@ -184,6 +186,7 @@ SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
 │   │       └── 18_corestatus.js
 │   └── corestatus/
 │       ├── load-graph.js
+│       ├── tab-nav.js
 │       ├── temperature-graph.js
 │       └── temperature-overview.js
 ├── po/templates/corestatus.pot
