@@ -55,6 +55,21 @@ make package/luci-app-corestatus/compile V=s
 
 编译产物位于 `bin/packages/<架构>/base/` 目录下，包含插件包和简体中文语言包。
 
+### 直接部署到运行中的设备
+
+不打包，直接用脚本把源码部署到已开启 SSH 的设备（适合开发调试）：
+
+```sh
+scripts/deploy-router.sh root@192.168.10.224
+
+# 用密码登录（需要 sshpass，密码通过 SSHPASS 环境变量传入）：
+SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
+```
+
+脚本会复制 `root/` 与 `htdocs/`、安装简体中文翻译（需要 `po2lmo`，或用 `PO2LMO="node /path/to/po2lmo.mjs"` 指定编译器）、重启 rpcd、清理 LuCI 缓存并验证结果，可重复执行。
+
+部分厂商固件的概览页使用写死的 include 列表，不会加载第三方应用，脚本会自动检测并给 `/www/luci-static/resources/view/status/index.js` 打补丁（原文件备份为 `/root/luci-mod-status-status-index.js.bak`）；标准 LuCI 会自动发现 include，不打补丁。可用 `--no-overview-patch` 跳过。固件升级会覆盖该补丁，升级后重新运行脚本即可。
+
 ## 功能
 
 - **CPU**：读取 `/proc/stat`，计算总负载、各核心负载，以及 user/nice/system/idle/io/irq/sirq 明细；同时显示 CPU 频率。

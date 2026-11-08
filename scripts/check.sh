@@ -20,6 +20,15 @@ else
 	bad ".github/workflows/build.yml is not valid YAML"
 fi
 
+step "shell script syntax"
+for f in scripts/check.sh scripts/integration-check.sh scripts/deploy-router.sh; do
+	if sh -n "$f"; then
+		ok "$f"
+	else
+		bad "$f"
+	fi
+done
+
 step "JavaScript syntax"
 for f in htdocs/luci-static/resources/view/status/corestatus.js \
          htdocs/luci-static/resources/view/status/include/18_corestatus.js \

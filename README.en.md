@@ -96,6 +96,21 @@ make package/luci-app-corestatus/compile V=s
 
 The packages land in `bin/packages/<arch>/base/` and include both the plugin and the Simplified Chinese language pack.
 
+### Deploy directly to a running device
+
+For development, deploy the source tree to a device with SSH enabled instead of building packages:
+
+```sh
+scripts/deploy-router.sh root@192.168.10.224
+
+# Password authentication (requires sshpass; pass the password via SSHPASS):
+SSHPASS=your-password scripts/deploy-router.sh root@192.168.10.224
+```
+
+The script copies `root/` and `htdocs/`, installs the Simplified Chinese translation (requires `po2lmo`, or point `PO2LMO="node /path/to/po2lmo.mjs"` at a compiler), restarts rpcd, clears the LuCI caches and verifies the result. It is idempotent and can be re-run safely.
+
+Some vendor firmware renders the overview from a fixed include list and never loads third-party includes; the script detects that layout and patches `/www/luci-static/resources/view/status/index.js` (the original is saved as `/root/luci-mod-status-status-index.js.bak`). Stock LuCI discovers includes automatically and needs no patch. Pass `--no-overview-patch` to skip it. A firmware upgrade reverts the patch; re-run the script afterwards.
+
 ## Usage
 
 ### Status overview
