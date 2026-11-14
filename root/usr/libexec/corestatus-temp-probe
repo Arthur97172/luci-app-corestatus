@@ -1,0 +1,70 @@
+#!/bin/sh
+#
+# Probe hwmon temperature channels and print the paths that answer quickly.
+#
+# Not every hwmon channel does. ath12k registers one hwmon per radio link, and
+# on a link whose firmware does not come up the temperature read is carried by
+# a WMI command that goes unanswered: the read blocks for 10-17 s and only
+# then fails. While that command is pending every other query on the same radio
+# queues behind it, so iwinfo - and with it LuCI's status page - freezes too.
+#
+# A blocking sysfs read cannot be cancelled from userspace; the process sits
+# in D state until the kernel returns. The only cure is not to issue it again.
+# Every channel is therefore read once here, in parallel, and given a grace
+# period. A channel that is still blocked when the grace period runs out is
+# abandoned (its read is left to finish on its own) and omitted from the
+# output, so luci.corestatus never touches it again.
+#
+# The first line of the output is always the header below; callers use it to
+# tell "every channel is bad" apart from "the helper did not run".
+#
+# Usage: corestatus-temp-probe [grace-seconds] path...
+
+printf '%s\n' 'corestatus-temp-probe 1'
+
+grace=${1:-2}
+shift
+case "$grace" in
+	''|*[!0-9]*) grace=2 ;;
+esac
+
+[ $# -gt 0 ] || exit 0
+
+dir=/tmp/.corestatus-temp-probe.$$
+mkdir -p "$dir" || exit 0
+
+num=0
+for f in "$@"; do
+	num=$((num + 1))
+	# Detach the read from stdout: when this runs under popen(), a blocked
+	# child holding the pipe would keep the caller's read() waiting even
+	# after this script has printed its result and exited.
+	(
+		cat "$f" >"$dir/$num.out" 2>/dev/null
+		: >"$dir/$num.done"
+	) </dev/null >/dev/null 2>&1 &
+	printf '%s %s\n' "$num" "$f" >>"$dir/index"
+done
+
+end=$(( $(date +%s) + grace ))
+while :; do
+	finished=0
+	while read -r n f; do
+		[ -f "$dir/$n.done" ] && finished=$((finished + 1))
+	done <"$dir/index"
+
+	[ "$finished" -ge "$num" ] && break
+	[ "$(date +%s)" -ge "$end" ] && break
+	sleep 0.1 2>/dev/null || sleep 1
+done
+
+while read -r n f; do
+	[ -f "$dir/$n.done" ] || continue
+	case "$(cat "$dir/$n.out" 2>/dev/null)" in
+		''|*[!0-9-]*) continue ;;
+	esac
+	printf '%s\n' "$f"
+done <"$dir/index"
+
+rm -rf "$dir"
+exit 0

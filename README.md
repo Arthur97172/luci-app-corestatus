@@ -39,8 +39,6 @@
 3. 刷新 LuCI：概览页的「负载与温度」组件下方会出现温度传感器区块，菜单里会出现「状态 → 实时信息 → 负载与温度」，页面内可在负载与温度之间切换。
 
 > 温度功能依赖 `ucode` 与 `ucode-mod-fs`（安装包会自动带上；`rpcd-mod-ucode` 已由 `luci-base` 依赖）。不安装语言包时界面显示英文。包架构为 `all`，纯前端资源，ARM / x86 / MIPS 等平台通用。
->
-> 本包使用独立的 `luci.corestatus` RPC 脚本和 ubus 对象，不会覆盖 `luci-app-temp-status`；但两者可能同时在概览页显示温度卡片，建议只安装其中一个以免重复。
 
 ### 从源码编译
 
@@ -78,7 +76,7 @@ SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
 - **GPU / NPU 自动发现**：启动时扫描，发现硬件才显示对应行；没有 GPU/NPU 的设备只显示 CPU 部分，不出现空行。
 - **负载与频率分开呈现**：有负载计数器时画进度条；没有计数器时只显示频率（同类设备有多个时再附带设备名），不显示空进度条或「不可用」。
 - **同类设备自动编号**：例如 `GPU 1`、`GPU 2`，并随可用数据分别显示「负载」或「频率」。
-- **温度传感器**：读取 hwmon 与 thermal zone，温度区块内嵌在负载与温度组件中，提供卡片、列表、表格、条形四种视图，切换标签与负载的视图标签风格一致；hot/overheat 阈值分别着色。
+- **温度传感器**：读取 hwmon 与 thermal zone，温度区块内嵌在负载与温度组件中，提供卡片、列表、表格、条形四种视图，切换标签与负载的视图标签风格一致；hot/overheat 阈值分别着色。驱动卡住的温度通道只会被探测一次，此后跳过，轮询不会再把内核卡住。
 - **标签过多时可左右切换**：实时页的负载与温度标签栏在标签超出一行时，两端会出现 ‹ / › 按钮，逐个切换到上一个/下一个标签并自动滚动到可见区域；标签没有溢出时按钮不显示。
 - **只读、无守护进程**：全部数据通过 rpcd 读取，不写 UCI，不启动后台服务。
 
@@ -147,7 +145,8 @@ SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
 - 所有 sysfs/procfs 读取都通过 rpcd 的 `file` 对象完成，插件在 `acl.d` 里声明允许读取的路径。rpcd 在检查权限前会把符号链接解析成真实路径，因此 ACL 同时放行了 `/sys/class/...` 和解析后的 `/sys/devices/...` 路径。
 - 扫描顺序为：先枚举 `/sys/class/devfreq`，再尝试 Rockchip rknpu、Qualcomm kgsl、amdgpu、Tegra、Airoha 等专用接口，最后扫描 `/sys/class/misc`；同一类型已经识别到时，misc 里的重复条目会被忽略。
 - 设备类型由名称关键字判断：`npu`、`apu`、`vpu`、`nna`、`ethos` 视为 NPU；`gpu`、`mali`、`panfrost`、`adreno`、`kgsl`、`v3d`、`lima`、`vivante`、`galcore`、`sgpu`、`powervr`、`etnaviv`、`pvr` 视为 GPU。
-- 温度数据由随包提供的 rpcd ucode 脚本 `root/usr/share/rpcd/ucode/luci.corestatus` 读取：它向 ubus 注册 `luci.corestatus` 对象，扫描 `/sys/class/hwmon` 与 `/sys/class/thermal`，读取 `tempN_input`、传感器标签和 trip point；驱动报告 `tempN_fault` 非零的输入会被跳过。hwmon 已覆盖的 thermal zone 会自动去重。
+- 温度数据由随包提供的 rpcd ucode 脚本 `root/usr/share/rpcd/ucode/luci.corestatus` 读取：它向 ubus 注册 `luci.corestatus` 对象，扫描 `/sys/class/hwmon` 与 `/sys/class/thermal`，读取 `tempN_input`、传感器标签和 trip point；驱动报告 `tempN_fault` 非零的输入会被跳过，且 fault 标志先于温度本身读取。hwmon 已覆盖的 thermal zone 会自动去重。
+- 读取任何通道之前，先用随包的 `root/usr/libexec/corestatus-temp-probe` 并行读一遍所有 hwmon 温度输入，只保留 2 秒内应答的通道。sysfs 读取一旦卡在驱动里就无法从用户态取消，再次发起会连 rpcd 和它背后的无线驱动一起卡住，所以错过宽限期的通道此后跳过。健康通道列表缓存在 `/tmp/luci.corestatus.tempchannels`；页面发现传感器时，最多每 60 秒对列表里缺的通道重探一次，3–5 秒的轮询本身不再重探（仅在完全没有列表时探测一次）。辅助脚本不可用时完全跳过探测，退回原来的全量读取行为。
 - 该脚本运行在 rpcd 进程内，只读，不新增守护进程；由于读取发生在 rpcd 内部，温度 sysfs 路径不需要逐条写入 ACL。
 - 插件不写任何配置，也不启动守护进程；卸载后不会留下系统改动。
 
@@ -168,6 +167,7 @@ SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
 - 概览组件的刷新间隔由 LuCI 状态页决定（5 秒），不是独立可配置项。
 - 若内核的 cpufreq 驱动没有注册（例如 AN7581 的 CPU 时钟无法报告频率），「CPU 频率」显示的是设备树 OPP 表中的最高频率，而不是实时频率；这类设备本身也没有调频接口。
 - 驱动报告 fault 的输入（例如未连接的热敏电阻，读数可能是 127.9 °C 之类的哨兵值）会被跳过；其余明显异常的读数可以结合 hot/overheat 阈值的着色判断是否需要关注。
+- 探测时卡住的温度通道会一直隐藏，直到之后某次页面发现传感器时重新探测（最多每 60 秒一次）；卡在内核里的读取本身无法从用户态取消。
 - 温度功能需要 `ucode-mod-fs`；极简系统若缺少该模块，温度组件会报告没有可用传感器。
 - Argon 2.x 的强制暗色模式通过独立样式表实现，页面上没有可检测的标记，因此插件针对暗色背景的少量补偿只在 Bootstrap 的 `data-darkmode` 下生效；Argon 2.x 自身的明暗样式完整，不影响显示。
 
@@ -191,10 +191,13 @@ SSHPASS=你的密码 scripts/deploy-router.sh root@192.168.10.224
 │       └── temperature-overview.js
 ├── po/templates/corestatus.pot
 ├── po/zh_Hans/corestatus.po
-├── root/usr/share/
-│   ├── luci/menu.d/luci-app-corestatus.json
-│   ├── rpcd/acl.d/luci-app-corestatus.json
-│   └── rpcd/ucode/luci.corestatus
+├── root/
+│   ├── usr/libexec/
+│   │   └── corestatus-temp-probe
+│   └── usr/share/
+│       ├── luci/menu.d/luci-app-corestatus.json
+│       ├── rpcd/acl.d/luci-app-corestatus.json
+│       └── rpcd/ucode/luci.corestatus
 ├── scripts/
 │   ├── check.sh
 │   ├── integration-check.js
