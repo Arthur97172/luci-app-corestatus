@@ -17,7 +17,7 @@ It adds two entry points:
 - **Automatic GPU / NPU discovery**: hardware is scanned at start-up and a row is shown only when the device exists; systems without a GPU/NPU show the CPU section alone, with no empty rows.
 - **Load and frequency presented separately**: a progress bar is drawn when a load counter exists; otherwise only the frequency is shown (the device name is added when there are several devices of the same kind), with no empty bar and no "unavailable".
 - **Automatic numbering for multiple devices**: for example `GPU 1` and `GPU 2`, each labelled "Load" or "Frequency" according to the data actually available.
-- **Temperature sensors**: reads hwmon and thermal zones; the temperature block is embedded in the Load and Temperature widget, offers card, list, table and bar views with the same tab styling as the load view tabs, and colour-codes hot/overheat thresholds.
+- **Temperature sensors**: reads hwmon and thermal zones; the temperature block is embedded in the Load and Temperature widget, offers card, list, table and bar views with the same tab styling as the load view tabs, and colour-codes hot/overheat thresholds. A channel whose driver blocks a read is probed once and then skipped, so polling never stalls the kernel.
 - **Overflowing tabs**: when the load or temperature tab bar does not fit on one line, ‹ / › buttons appear at both ends to step to the previous/next tab and scroll it into view; they stay hidden while every tab fits.
 - **Read-only, no daemon**: all data is read through rpcd. The plugin writes no UCI configuration and starts no background service.
 
@@ -81,8 +81,6 @@ The parsers understand these load formats:
 3. Reload LuCI: the temperature sensor block appears below the "Load and Temperature" widget on the overview page, and "Status → Realtime → Load and Temperature" gains a Load/Temperature switch.
 
 > Temperature support depends on `ucode` and `ucode-mod-fs` (pulled in by the package; `rpcd-mod-ucode` is already a dependency of `luci-base`). Without the language pack the interface is English. The package architecture is `all`; it contains only front-end resources and works on ARM, x86, MIPS and other targets alike.
->
-> This package uses its own `luci.corestatus` RPC script and ubus object, so it does not overwrite `luci-app-temp-status`; however, both may show temperature cards on the overview page, so install only one of them to avoid duplication.
 
 ### From source
 
@@ -145,7 +143,8 @@ Some vendor firmware renders the overview from a fixed include list and never lo
 - Every sysfs/procfs read goes through the rpcd `file` object, and the plugin lists the allowed paths in its `acl.d` file. rpcd resolves symlinks with `realpath()` before checking permissions, so the ACL grants both the `/sys/class/...` paths and their resolved `/sys/devices/...` targets.
 - The scan order is: enumerate `/sys/class/devfreq`, try the dedicated Rockchip rknpu, Qualcomm kgsl, amdgpu, Tegra and Airoha probes, then scan `/sys/class/misc`. A misc entry that duplicates an accelerator already found is ignored.
 - The device kind comes from name keywords: `npu`, `apu`, `vpu`, `nna` and `ethos` count as NPU; `gpu`, `mali`, `panfrost`, `adreno`, `kgsl`, `v3d`, `lima`, `vivante`, `galcore`, `sgpu`, `powervr`, `etnaviv` and `pvr` count as GPU.
-- Temperature data comes from the bundled rpcd ucode script `root/usr/share/rpcd/ucode/luci.corestatus`: it registers the `luci.corestatus` ubus object, scans `/sys/class/hwmon` and `/sys/class/thermal`, and reads `tempN_input`, sensor labels and trip points. Inputs whose driver reports a non-zero `tempN_fault` are skipped. Thermal zones already covered by hwmon are de-duplicated.
+- Temperature data comes from the bundled rpcd ucode script `root/usr/share/rpcd/ucode/luci.corestatus`: it registers the `luci.corestatus` ubus object, scans `/sys/class/hwmon` and `/sys/class/thermal`, and reads `tempN_input`, sensor labels and trip points. Inputs whose driver reports a non-zero `tempN_fault` are skipped, and the fault flag is read before the temperature itself. Thermal zones already covered by hwmon are de-duplicated.
+- Before any channel is read, `root/usr/libexec/corestatus-temp-probe` reads all hwmon temperature inputs in parallel and keeps the ones that answer within two seconds. A sysfs read blocked in the driver cannot be cancelled from userspace, and issuing it again would stall rpcd and the radio behind it, so a channel that misses the grace period is skipped from then on. The healthy list is cached in `/tmp/luci.corestatus.tempchannels`; sensor discovery re-probes channels missing from that list at most once every 60 seconds, while the 3–5 second polling never re-probes (it only probes once when no list exists yet). The probe is skipped entirely when the helper is unavailable, falling back to the previous read-everything behaviour.
 - The script runs inside the rpcd process, is read-only and adds no daemon; because the reads happen inside rpcd, the temperature sysfs paths do not need individual ACL entries.
 - The plugin writes no configuration and starts no daemon; uninstalling it leaves no system changes behind.
 
@@ -166,6 +165,7 @@ Some vendor firmware renders the overview from a fixed include list and never lo
 - The overview refresh interval is set by the LuCI status page (5 seconds) and is not configurable per plugin.
 - When the kernel's cpufreq driver does not register (for example the AN7581's CPU clock reports no rate), "CPU Frequency" shows the highest device-tree OPP instead of a live value; such devices have no frequency-scaling interface to read anyway.
 - Inputs the driver reports as faulted (for example an unconnected thermistor, which may read a sentinel value such as 127.9 °C) are skipped; other obviously bogus readings can be judged from the hot/overheat colouring.
+- A temperature channel that blocks during the probe stays hidden until a later discovery re-probes it, which happens at most once every 60 seconds; the blocked read itself cannot be cancelled from userspace.
 - Temperature support requires `ucode-mod-fs`; on a minimal system without it the widget reports that no sensors are available.
 - Argon 2.x's forced dark mode is implemented by a separate stylesheet and leaves no detectable marker on the page, so this plugin's small dark-background correction only applies under Bootstrap's `data-darkmode`. Argon 2.x styles both modes itself, so nothing is lost visually.
 
@@ -188,10 +188,13 @@ Some vendor firmware renders the overview from a fixed include list and never lo
 │       └── temperature-overview.js
 ├── po/templates/corestatus.pot
 ├── po/zh_Hans/corestatus.po
-├── root/usr/share/
-│   ├── luci/menu.d/luci-app-corestatus.json
-│   ├── rpcd/acl.d/luci-app-corestatus.json
-│   └── rpcd/ucode/luci.corestatus
+├── root/
+│   ├── usr/libexec/
+│   │   └── corestatus-temp-probe
+│   └── usr/share/
+│       ├── luci/menu.d/luci-app-corestatus.json
+│       ├── rpcd/acl.d/luci-app-corestatus.json
+│       └── rpcd/ucode/luci.corestatus
 ├── scripts/
 │   ├── check.sh
 │   ├── integration-check.js

@@ -1,14 +1,197 @@
 
 'use strict';
 
-import { chdir, lsdir, readfile, readlink, realpath, stat } from 'fs';
+import { chdir, lsdir, popen, readfile, readlink, realpath, rename, stat, writefile } from 'fs';
 
 const sysHwmon   = '/sys/class/hwmon';
 const sysThermal = '/sys/class/thermal';
 
+const tempProbe       = '/usr/libexec/corestatus-temp-probe';
+const tempProbeHeader = 'corestatus-temp-probe 1';
+const tempState       = '/tmp/luci.corestatus.tempchannels';
+const tempProbeGrace  = 2;
+const tempProbeRetry  = 60;
+
 function readFile(path) {
 	let r = readfile(path);
 	return r && trim(r);
+}
+
+function isHwmonTempPath(path) {
+	return match(path, /^\/sys\/class\/hwmon\/hwmon[0-9]+\/temp[0-9]+_input$/);
+}
+
+// All hwmon temperature inputs currently present, without reading any of them.
+function hwmonTempPaths() {
+	let paths = [];
+	if(stat(sysHwmon)?.type == 'directory') {
+		for(let item in lsdir(sysHwmon)) {
+			if(!match(item, /^hwmon[0-9]+$/)) {
+				continue;
+			}
+			let dirPath = sprintf('%s/%s', sysHwmon, item);
+			if(stat(dirPath)?.type != 'directory') {
+				continue;
+			}
+			for(let source in lsdir(dirPath)) {
+				if(match(source, /^temp[0-9]+_input$/)) {
+					push(paths, sprintf('%s/%s', dirPath, source));
+				}
+			}
+		}
+	}
+	return paths;
+}
+
+// The healthy channels from the last probe, or null when no probe has run.
+// An empty list is a valid result: every channel was blocked.
+function readTempChannels() {
+	if(stat(tempState)?.type != 'file') {
+		return null;
+	}
+	let data = readfile(tempState);
+	if(data == null) {
+		return null;
+	}
+	let channels = [];
+	for(let line in split(data, '\n')) {
+		line = trim(line);
+		if(isHwmonTempPath(line)) {
+			push(channels, line);
+		}
+	}
+	return channels;
+}
+
+function writeTempChannels(channels) {
+	let data = length(channels) > 0 ? join('\n', channels) + '\n' : '';
+	let tmp  = tempState + '.new';
+	if(writefile(tmp, data) == null) {
+		return false;
+	}
+	return rename(tmp, tempState);
+}
+
+/*
+ * Read every channel once, in parallel, and keep the ones that answered
+ * within tempProbeGrace seconds. See root/usr/libexec/corestatus-temp-probe
+ * for why a channel that blocks must never be read a second time.
+ *
+ * Returns the healthy paths, or null if the helper could not be run (the
+ * caller then falls back to reading everything, as older versions did).
+ */
+function probeTempChannels(paths) {
+	let args = [];
+	for(let path in paths) {
+		if(isHwmonTempPath(path)) {
+			push(args, path);
+		}
+	}
+	if(length(args) == 0) {
+		writeTempChannels([]);
+		return [];
+	}
+	if(stat(tempProbe)?.type != 'file') {
+		return null;
+	}
+	let out;
+	let status;
+	try {
+		let proc = popen(sprintf('%s %d %s', tempProbe, tempProbeGrace, join(' ', args)), 'r');
+		if(proc == null) {
+			return null;
+		}
+		out    = proc.read('all');
+		status = proc.close();
+	}
+	catch (e) {
+		return null;
+	}
+	if(status != 0 || out == null) {
+		return null;
+	}
+	let lines = split(out, '\n');
+	if(length(lines) == 0 || trim(lines[0]) != tempProbeHeader) {
+		return null;
+	}
+	let channels = [];
+	for(let i = 1; i < length(lines); i++) {
+		let line = trim(lines[i]);
+		if(isHwmonTempPath(line)) {
+			push(channels, line);
+		}
+	}
+	writeTempChannels(channels);
+	return channels;
+}
+
+// Forget a channel that failed to answer, so later polls do not read it again.
+function dropTempChannel(path) {
+	let channels = readTempChannels();
+	if(channels == null) {
+		return;
+	}
+	let kept  = [];
+	let found = false;
+	for(let channel in channels) {
+		if(channel == path) {
+			found = true;
+		}
+		else {
+			push(kept, channel);
+		}
+	}
+	if(found) {
+		writeTempChannels(kept);
+	}
+}
+
+/*
+ * Return the set of hwmon channels that may be read, or null when no filtering
+ * is possible (no probe helper): callers then read every channel.
+ *
+ * A probe runs when there is no state yet, and - on sensor discovery only -
+ * when a current channel is missing from the state and the state is at least
+ * tempProbeRetry seconds old. Polling (getTempData) never re-probes by itself:
+ * a channel that blocks in the driver would stall the radio on every probe.
+ */
+function allowedTempPaths(paths, mayProbe) {
+	let channels = readTempChannels();
+
+	if(channels == null) {
+		channels = probeTempChannels(paths);
+		if(channels == null) {
+			return null;
+		}
+	}
+	else if(mayProbe) {
+		let known    = {};
+		let missing  = false;
+		for(let channel in channels) {
+			known[channel] = true;
+		}
+		for(let path in paths) {
+			if(!exists(known, path)) {
+				missing = true;
+				break;
+			}
+		}
+		let s   = stat(tempState);
+		let age = s ? time() - int(s.mtime) : null;
+		if(missing && (age == null || age >= tempProbeRetry)) {
+			channels = probeTempChannels(paths);
+			if(channels == null) {
+				return null;
+			}
+		}
+	}
+
+	let allowed = {};
+	channels = channels || [];
+	for(let channel in channels) {
+		allowed[channel] = true;
+	}
+	return allowed;
 }
 
 function findTPoints(thermalDirPath) {
@@ -32,6 +215,9 @@ function findTPoints(thermalDirPath) {
 
 function getHwmonData(tDevPath, tempData) {
 	let hwmon = [];
+	// Decide which channels answer before reading any of them; see
+	// allowedTempPaths().
+	let allowed = allowedTempPaths(hwmonTempPaths(), true);
 	if(stat(sysHwmon)?.type == 'directory') {
 		for(let item in lsdir(sysHwmon)) {
 			if(match(item, /^hwmon[0-9]+$/)) {
@@ -55,7 +241,12 @@ function getHwmonData(tDevPath, tempData) {
 							let m              = match(source, /[0-9]+/);
 							let sNumber        = m && m[0];
 							let sourceFilePath = sprintf('%s/%s', hwmonDirPath, source);
-							let temp           = readFile(sourceFilePath);
+							// Only channels that answered the probe are read. A
+							// read blocked in the driver cannot be cancelled, so
+							// issuing it again would park rpcd and the radio too.
+							if(allowed != null && !exists(allowed, sourceFilePath)) {
+								continue;
+							}
 							let fault          = readFile(sprintf(
 								"%s/%s", hwmonDirPath, replace(source, /_input$/, '_fault')));
 							// a faulted input (e.g. an unconnected remote diode on nct7802)
@@ -63,6 +254,7 @@ function getHwmonData(tDevPath, tempData) {
 							if(fault && int(fault) != 0) {
 								continue;
 							}
+							let temp           = readFile(sourceFilePath);
 							if(sNumber && temp) {
 								tempData[sourceFilePath] = int(temp);
 								let label = readFile(sprintf(
@@ -98,6 +290,11 @@ function getHwmonData(tDevPath, tempData) {
 									sDict['tpoints'] = tPoints;
 								}
 								push(sources, sDict);
+							}
+							else if(sNumber) {
+								// The channel stopped answering: drop it so the
+								// next poll does not read it again.
+								dropTempChannel(sourceFilePath);
 							}
 						}
 					}
@@ -188,7 +385,15 @@ const methods = {
 			const tpaths = request.args?.tpaths;
 			let tData    = {};
 			if(tpaths && length(tpaths) > 0) {
+				// Polling never probes: it only reads the channels the last
+				// probe accepted. See allowedTempPaths().
+				let allowed = allowedTempPaths(hwmonTempPaths(), false);
 				for(let i in tpaths) {
+					let isHwmon = isHwmonTempPath(i);
+					if(isHwmon && allowed != null && !exists(allowed, i)) {
+						tData[i] = null;
+						continue;
+					}
 					let faultPath = replace(i, /_input$/, '_fault');
 					if(match(faultPath, /_fault$/)) {
 						let fault = readFile(faultPath);
@@ -197,8 +402,18 @@ const methods = {
 							continue;
 						}
 					}
-					let t    = readFile(i);
-					tData[i] = (t && int(t));
+					let t = readFile(i);
+					if(t) {
+						tData[i] = int(t);
+					}
+					else {
+						tData[i] = null;
+						if(isHwmon) {
+							// A channel that no longer answers must not be
+							// read again on the next poll.
+							dropTempChannel(i);
+						}
+					}
 				}
 			}
 			return { temp: tData };

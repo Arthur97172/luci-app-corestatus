@@ -21,7 +21,8 @@ else
 fi
 
 step "shell script syntax"
-for f in scripts/check.sh scripts/integration-check.sh scripts/deploy-router.sh; do
+for f in scripts/check.sh scripts/integration-check.sh scripts/deploy-router.sh \
+         root/usr/libexec/corestatus-temp-probe; do
 	if sh -n "$f"; then
 		ok "$f"
 	else
@@ -134,12 +135,21 @@ for f in ('htdocs/luci-static/resources/corestatus/load-graph.js',
 	if not os.path.isfile(f):
 		problems.append('shared module %s is missing' % f)
 
+probe = 'root/usr/libexec/corestatus-temp-probe'
+if not os.path.isfile(probe):
+	problems.append('temperature channel probe helper is missing')
+elif not os.access(probe, os.X_OK):
+	problems.append('temperature channel probe helper is not executable')
+
 if not os.path.isfile('root/usr/share/rpcd/ucode/luci.corestatus'):
 	problems.append('rpcd ucode script luci.corestatus is missing')
 else:
 	with open('root/usr/share/rpcd/ucode/luci.corestatus') as f:
-		if "'luci.corestatus'" not in f.read():
-			problems.append('luci.corestatus does not register ubus object luci.corestatus')
+		ucode_src = f.read()
+	if "'luci.corestatus'" not in ucode_src:
+		problems.append('luci.corestatus does not register ubus object luci.corestatus')
+	if '/usr/libexec/corestatus-temp-probe' not in ucode_src:
+		problems.append('luci.corestatus does not use the temperature channel probe helper')
 
 for p in problems:
 	print('  FAIL  ' + p)

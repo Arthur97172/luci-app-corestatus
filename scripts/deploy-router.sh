@@ -89,6 +89,7 @@ chmod 644 /usr/share/rpcd/ucode/luci.corestatus \
           /www/luci-static/resources/svg/corestatus.svg \
           /www/luci-static/resources/svg/temperature.svg
 find /www/luci-static/resources/corestatus -type f -exec chmod 644 {} \;
+chmod 755 /usr/libexec/corestatus-temp-probe
 REMOTE
 ok "file permissions"
 
@@ -161,6 +162,8 @@ remote_sh <<'REMOTE' || bad "restarting rpcd"
 set -eu
 /etc/init.d/rpcd restart
 rm -f /tmp/luci-indexcache* /tmp/luci-modulecache*
+# force the new probe to classify the channels again
+rm -f /tmp/luci.corestatus.tempchannels /tmp/luci.corestatus.tempchannels.new
 REMOTE
 ok "rpcd restarted, caches cleared"
 
@@ -192,7 +195,8 @@ fi
 for f in /www/luci-static/resources/view/status/corestatus.js \
          /www/luci-static/resources/view/status/include/18_corestatus.js \
          /www/luci-static/resources/corestatus/load-graph.js \
-         /www/luci-static/resources/corestatus/tab-nav.js; do
+         /www/luci-static/resources/corestatus/tab-nav.js \
+         /usr/libexec/corestatus-temp-probe; do
 	if [ -f "$f" ]; then
 		note ok "$f"
 	else
